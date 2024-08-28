@@ -1,0 +1,192 @@
+---
+title: 'Etude de la base de données Agribalyse : alimentation et changement climatique'
+output:
+  html_document:
+    number_sections: yes
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Description des données
+
+## Provenance des données
+Les données proviennent de l'étude Agribalyse qui référence l'impact environnemental des différents produits agricoles.
+
+La récolte des données a été élaborée et validée dans le cadre de partenariats notamment avec l'ADEME et l'INRAE.
+
+Les données sont publiques et téléchargeables à l'adresse suivante :  https://doc.agribalyse.fr/
+
+## Description du jeu de données
+
+La base de données contient des informations sur le type de produit (groupe d'aliment, sous-groupe d'aliment, composition etc) ainsi que différentes mesures de l'impact environnemental (émissions de $\textrm{C0}_2$, particules fines...). 
+La description complète du jeu de données se trouve ici :
+
+Dans ce TP, nous proposons d'étudier un sous-ensemble de variables décrites ici :
+
+
+1.  Code CIQUAL identifie un aliment
+2. Groupe d'aliments 
+3.  Sous-groupe d'aliments
+4.  Nom du produit en français
+5. Changement climatique provenant de l'agriculture (en kg C02/kg de produit)
+6. Changement climatique provenant de la transformation (en kg C02/kg de produit)
+7. Changement climatique provenant de l'emballage (en kg C02/kg de produit)
+8. Changement climatique provenant du transport (en kg C02/kg de produit)
+9. Changement climatique provenant de la distribution (en kg C02/kg de produit)
+10. Changement climatique provenant de la consommation (en kg C02/kg de produit)
+11. Changement climatique total (somme des 6 précédents) (en kg C02/kg de produit)
+12. Score unique EF 3.1 (en mPt/kg de produit)
+13. Appauvrissement de la couche d'ozone (en kg CVC11 eq/kg de produit)
+14. Rayonnements ionisants (en kBq U-235 eq/kg de produit)
+15. Formation photochimique d'ozone (en kg NMVOC eq/kg de produit)
+16. Particules fines	(en disease inc./kg de produit)
+17.  Effets toxicologiques sur la santé humaine : substances non-cancérogènes (en CTUh/kg de produit)
+18. Effets toxicologiques sur la santé humaine : substances cancérogènes	(en CTUh/kg de produit)
+19. Acidification terrestre et eaux douces (en mol H+ eq/kg de produit)
+20.  Eutrophisation eaux douces (en kg P eq/kg de produit)
+21. Eutrophisation marine	(en kg N eq/kg de produit)
+22. Eutrophisation terrestre	(en mol N eq/kg de produit)
+23. Écotoxicité pour écosystèmes aquatiques d'eau douce (en CTUe/kg de produit)
+24. Utilisation du sol (en Pt/kg de produit)
+25. Épuisement des ressources eau (en m3 depriv./kg de produit)
+26.  Épuisement des ressources énergétiques (en MJ/kg de produit)
+27. Épuisement des ressources minéraux (en kg Sb eq/kg de produit)
+
+
+Les variables 1 à 4 décrivent le type d'aliment, les variables 5 à 11 détaillent les émissions de $\textrm{C0}_2$ en distinguant l'étape du processus concernée (agriculture, transport etc), les variables 12 à 27 donnent les autres indicateurs environnementaux.
+
+
+## Remarques sur la construction du jeu de données 
+
+- Faire attention à la fiabilité des différents indicateurs écologiques : certains sont beaucoup plus robustes que d'autres. Le score unique prend notamment en compte ces différences en donnant plus de poids aux indicateurs les plus fiables
+
+- L'indice DQR présent dans le jeu de données (note de 1 à 5) quantifie la qualité de la donnée récoltée (une valeur pour chaque entrée de la base, 1=excellent, 5=faible)
+
+- Le calcul de l'impact d'un produit est effectué en moyenne sur tous les produits du même type. La notice nous donne l'exemple suivant : " L’impact d’une pizza Margherita « standard », constituée de tomates
+« standards » conventionnelles, de gruyère
+et de jambon standards « conventionnels »,
+issus des systèmes de production majoritaires
+aujourd’hui, et d’emballages majoritaires
+observés pour ce type de produit. Les impacts
+de la « tomate standard conventionnelle » de
+la pizza représentent la moyenne pondérée
+des impacts de tomates majoritairement
+utilisés pour les produits transformés (c’est-à-
+dire 18 % des tomates issues de la production
+française, 46 % de tomates italiennes et 36 %
+de tomates espagnoles). "
+
+- La notice pdf fournie sur le site  https://doc.agribalyse.fr/ est très complète et renseigne sur le détail précis de la constitution de la base de données
+
+# Objectifs 
+
+## Questions
+
+On propose d'étudier :
+
+- le lien entre le type de produit et les émissions de $\textrm{C0}_2$
+
+- les parts d'émission de C02 dues à chaque étape du processus de commercialisation d'un aliment, en différenciant par type d'aliment
+
+
+## Outils utilisés dans ce TP
+
+- tri et manipulation des données avec tidyverse
+
+- Statistique descriptive et visualisation avec ggplot
+
+## packages R à installer
+
+- tidyverse
+
+- ggplot2
+
+- readxl
+
+- optionnel : corrplot 
+
+# Pré-traitement des données pour faciliter leur utilisation
+
+Nous avons effectué une étape de traitement des données qui a consisté à :
+
+- renommer certaines colonnes spour améliorer la lisibilité 
+
+- sélectionner certaines variables pour créer deux tableaux **agri_cc** qui contient les étapes du processus responsables des émissions de C02 et **agri_all_indic** qui contient tous les indicateurs environnementaux mais uniquement les totaux (sans distinguer selon la provenance).
+
+- modifier une entrée dont code CIQUAL apparaissait en doublon
+
+```{r, warning=FALSE,message=FALSE}
+
+library(tidyverse) ## pour la mise en forme des données
+library(readxl) ## lecture des données au format excel
+# library(plyr)
+url1<-'https://data.ademe.fr/data-fair/api/v1/datasets/agribalyse-31-synthese/metadata-attachments/AGRIBALYSE3.1.1_produits%20alimentaires.xlsx'
+p1f <- tempfile()
+
+download.file(url1, p1f, mode="wb")
+agri <- read_excel(path=p1f , sheet = 2, col_names = TRUE, na = "", skip =2)
+dim(agri)
+head(agri)
+
+##  Récupération des  noms des variables qui se trouvent sur plusieurs lignes 
+
+pour_nom <- read_excel("AGRIBALYSE3.1_produits alimentaires_2.xlsm", sheet = 2, col_names = TRUE, na = "", skip =1)
+colnames(agri)[!grepl("\\.\\.\\.",colnames(pour_nom))] <- colnames(pour_nom)[!grepl("\\.\\.\\.",colnames(pour_nom))]
+dim(agri)
+
+agri_detail_nom  <- read_excel("AGRIBALYSE3.1_produits alimentaires_2.xlsm", sheet = 3, col_names = TRUE, na = "", skip =0)
+agri_detail <- read_excel("AGRIBALYSE3.1_produits alimentaires_2.xlsm", sheet = 3, col_names = TRUE, na = "", skip =2)
+colnames(agri)[1] <- "Code AGB"
+
+agri_all_indic <- agri[,13:29]
+
+## agri changement climatique : 
+## probleme de sauce au poivre 11212 ! 
+
+agri_detail$`Code AGB`[agri_detail$`Code CIQUAL`=="11212"] <- "11212"
+
+agri_cc <- full_join(agri[,-c(13:29)], agri_detail[,c(1,16:22)])
+
+colnames(agri_cc) <- gsub("\\.\\.\\.[0-9][0-9]","", colnames(agri_cc))
+
+dim(agri_cc)
+head(agri_cc)
+
+### changement des noms de quelques modalités pour des raisons cosmétiques
+agri_cc$`Groupe d'aliment`<-plyr::revalue(agri_cc$`Groupe d'aliment`,c("viandes, œufs, poissons"="viandes, oeufs, poissons"))
+agri_cc$`Groupe d'aliment`<-plyr::revalue(agri_cc$`Groupe d'aliment`,c("fruits, légumes, légumineuses et oléagineux"="fruits et légumes"))
+agri_cc$`Groupe d'aliment`<-plyr::revalue(agri_cc$`Groupe d'aliment`,c("aides culinaires et ingrédients divers"="aides culinaires"))
+agri_cc$`Sous-groupe d'aliment`<-plyr::revalue(agri_cc$`Sous-groupe d'aliment`,c("œufs"="oeufs"))
+agri_cc$`Sous-groupe d'aliment`<-plyr::revalue(agri_cc$`Sous-groupe d'aliment`,c("produits à base de poissons et produits de la mer"="produits à base de poisson"))
+
+```
+
+# Proposition d'un énoncé de TP de statistique descriptive
+
+### Type d'aliment et émissions de $\textrm{C0}_2$ {-}
+1. Comparer à l'aide de boxplots l'émission de $\textrm{C0}_2$ (en kg par kg de produit) liée aux différents aliments. Commenter.
+
+2. Refaire la même chose mais en remplaçant les boxplots par des points, et en mettant une couleur par sous-groupe d'aliment. Pour la lisibilité, on n'affichera pas la légende pour la couleur grâce à la commande **guide**. Commenter.
+
+3. Quels sont les deux groupes d'aliments au sein desquels il y a le plus de variabilité ? Pour ces deux groupes, refaire la même analyse au niveau du sous-groupe d'aliments. Commenter.
+
+4. (Plus difficile) Concentrons nous sur les émissions de  $\textrm{C0}_2$ associées à la viande. Créer une nouvelle variable "type_viande" qui associe à chaque aliment (des sous-groupes "viandes crues" et "viandes cuites" uniquement) le type de viande (agneau, boeuf, poulet...). Pour cela, on pourra faire une recherche sur les principaux noms de viande et créer une modalité "other" pour les viandes qui apparaissent peu souvent. Indication : on pourra utiliser les fonctions **grepl** qui permet de chercher si une chaîne de caractère est contenue dans une autre (ex : est-ce que type d'aliment contient le nom "boeuf") puis **case_when** qui permet d'indiquer une condition (ex : si le type d'aliment contient le nom "boeuf" alors type_viande=boeuf). 
+
+5. Représenter les émissions de $\textrm{C0}_2$ en fonction du type de viande. Commenter.
+
+### Emissions de $\textrm{C0}_2$ par étape du processus de commercialisation d'un produit {-}
+
+6. Représenter les émissions associées à chaque étape (agriculture, transport...), tous produits confondus. Commenter.
+
+7. Refaire la même chose en séparant par groupe de produits. Commenter.
+
+8. Afficher le top 20 des produits dont le transport produit le plus de C02. Faire pareil pour la transformation et l'agriculture. Commenter.
+
+9. Parmi les produits identifiés à la question précédentes, afficher pour chacun la part d'émission due à chaque étape. Commenter.
+
+### Inclusion des autres indicateurs  {-}
+
+10. Charger le package **corrplot** et étudier la corrélation entre les différents indicateurs (sauf le score unique qui est calculé à partir de tous les autres). Commenter.

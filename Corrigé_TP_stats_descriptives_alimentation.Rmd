@@ -1,0 +1,286 @@
+---
+title: 'Etude de la base de données Agribalyse : alimentation et changement climatique'
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r, warning=FALSE,message=FALSE}
+
+library(tidyverse) ## pour la mise en forme des données
+library(readxl) ## lecture des données au format excel
+# library(plyr)
+
+url1<-'https://data.ademe.fr/data-fair/api/v1/datasets/agribalyse-31-synthese/metadata-attachments/AGRIBALYSE3.1.1_produits%20alimentaires.xlsx'
+p1f <- tempfile()
+
+download.file(url1, p1f, mode="wb")
+agri <- read_excel(path=p1f , sheet = 2, col_names = TRUE, na = "", skip =2)
+dim(agri)
+head(agri)
+
+
+##  Récupération des  noms des variables qui se trouvent sur plusieurs lignes 
+
+pour_nom <- read_excel(path=p1f , sheet = 2, col_names = TRUE, na = "", skip =1)
+#colnames(pour_nom)
+colnames(agri)[!grepl("\\.\\.\\.",colnames(pour_nom))] <- colnames(pour_nom)[!grepl("\\.\\.\\.",colnames(pour_nom))]
+dim(agri)
+
+agri_detail_nom  <- read_excel(path=p1f , sheet = 3, col_names = TRUE, na = "", skip =0)
+agri_detail <-read_excel(path=p1f , sheet = 3, col_names = TRUE, na = "", skip =2)
+colnames(agri)[1] <- "Code AGB"
+
+agri_all_indic <- agri[,13:29]
+
+## agri changement climatique : 
+## probleme de sauce au poivre 11212 ! 
+#  max(table(agri_detail[,1]))
+# sum(table(agri_detail[,1])==2)
+agri_detail$`Code AGB`[agri_detail$`Code CIQUAL`=="11212"] <- "11212"
+
+agri_cc <- full_join(agri[,-c(13:29)], agri_detail[,c(1,16:22)])
+
+colnames(agri_cc) <- gsub("\\.\\.\\.[0-9][0-9]","", colnames(agri_cc))
+
+dim(agri_cc)
+head(agri_cc)
+
+### changement des noms de quelques modalités pour des raisons cosmétiques
+agri_cc$`Synthèse`<-plyr::revalue(agri_cc$`Synthèse`,c("viandes, œufs, poissons"="viandes, oeufs, poissons"))
+agri_cc$`Synthèse`<-plyr::revalue(agri_cc$`Synthèse`,c("fruits, légumes, légumineuses et oléagineux"="fruits et légumes"))
+agri_cc$`Synthèse`<-plyr::revalue(agri_cc$`Synthèse`,c("aides culinaires et ingrédients divers"="aides culinaires"))
+agri_cc$`Sous-groupe d'aliment`<-plyr::revalue(agri_cc$`Sous-groupe d'aliment`,c("œufs"="oeufs"))
+agri_cc$`Sous-groupe d'aliment`<-plyr::revalue(agri_cc$`Sous-groupe d'aliment`,c("produits à base de poissons et produits de la mer"="produits à base de poisson"))
+
+```
+
+
+
+### Lien entre le type d'aliment et les émissions de C02 {-}
+1. 
+```{r,warning=FALSE,echo=FALSE}
+
+#library(ggplot2)  ## librairie ggplot2 pour les figures et définition d'un thème
+my_theme <- theme_bw() +
+  theme(strip.background = element_rect(fill = "white"), text = element_text( size=18),
+  )
+theme_set(my_theme)
+
+
+
+
+agri_cc %>% 
+  ggplot(aes(y =Total , x = `Synthèse`,fill=`Synthèse`)) + geom_boxplot() + coord_flip() +
+  guides(fill=FALSE)+
+  labs(y=" C02 ")+labs(x=" ")
+
+```
+
+Une première étude descriptive met en évidence que le total des émissions en C02 est le plus important pour les viandes, oeufs et poissons (à la fois la valeur médiane et les valeurs extrêmes), puis pour les produits sucrés. Les groupes pour lesquels les émissions sont les plus faibles sont les glaces et sorbets, les fruits et légumes; les boissons (malgré quelques valeurs extêmes) et les aliments infantiles.
+
+
+2. En mettant une couleur par sous-groupe d'aliment, on voit que le sous-groupe a l'air d'avoir une importance, notamment quand on regarde le groupe "viandes, oeufs, poissons" et "produits sucrés", ce qui suggère qu'il serait intéressant de faire la même analyse à l'échelle du sous-groupe.
+
+
+```{r,warning=FALSE,echo=FALSE}
+
+
+agri_cc %>% 
+  ggplot(aes(y =Total , x = `Synthèse`,color=`Sous-groupe d'aliment`)) + geom_point() + coord_flip() +
+  guides(color=FALSE)+
+  labs(y=" C02 ")+labs(x=" ")
+```
+
+3. On voit une grande variabilité au sein du groupe "viandes, oeufs et poisson", ainsi que dans le groupe des produits sucrés. Pour ces deux groupes, nous allons donc regarder plus en détail à l'échelle du sous-groupe. 
+
+```{r,warning=FALSE,echo=FALSE}
+agri_cc %>% 
+  filter(`Synthèse` == "viandes, oeufs, poissons") %>% 
+  ggplot(aes(y =Total , x = `Sous-groupe d'aliment`,fill=`Sous-groupe d'aliment`)) + geom_boxplot() + coord_flip() +   guides(fill=FALSE)+
+  labs(y=" C02 ")+labs(x=" ")
+
+agri_cc %>% 
+  filter(`Synthèse` == "produits sucrés") %>% 
+  ggplot(aes(y =Total , x = `Sous-groupe d'aliment`,fill=`Sous-groupe d'aliment`)) + geom_boxplot() + coord_flip() +   guides(fill=FALSE)+
+  labs(y=" C02 ")+labs(x=" ")
+
+```
+A l'échelle des sous-groupes de la catégorie "viandes, poissons et oeufs", on voit que ce sont les viandes crues et cuites qui émettent le plus de C02. Encore une fois, on observe une variabililté importante au sein de ces groupes. Au sein de la catégorie "produits sucrés", on voit que les émissions de C02 sont largement supérieures pour les produits à base de chocolat.
+
+
+4. Afin d'étudier plus en détail le type de viande, on crée un nouveau tableau qui contient uniquement les aliments de type "viande crue" ou "viande cuite", puis on crée une nouvelle variable qui associe le type précis de viande.
+
+```{r,warning=FALSE}
+viande <- agri_cc %>% 
+filter(`Sous-groupe d'aliment` %in% c("viandes crues","viandes cuites")) %>% 
+mutate(Type_viande = case_when( 
+grepl("Agneau",`Nom du Produit en Français`,ignore.case=TRUE)~"Agneau",
+grepl("Boeuf",`Nom du Produit en Français`,ignore.case=TRUE) ~"Boeuf",
+grepl("Bœuf",`Nom du Produit en Français`,ignore.case=TRUE) ~"Boeuf",
+grepl("Porc",`Nom du Produit en Français`,ignore.case=TRUE)~"Porc",
+grepl("Canard",`Nom du Produit en Français`,ignore.case=TRUE)~"Canard",
+grepl("Poulet",`Nom du Produit en Français`,ignore.case=TRUE)~"Poulet",
+grepl("Dinde",`Nom du Produit en Français`,ignore.case=TRUE)~"Dinde",
+grepl("Veau",`Nom du Produit en Français`,ignore.case=TRUE)~"Veau",
+grepl("Lapin",`Nom du Produit en Français`,ignore.case=TRUE)~"Lapin",
+grepl("Mouton",`Nom du Produit en Français`,ignore.case=TRUE)~"Mouton",
+TRUE~"other"
+))
+
+head(viande$Type_viande)
+table(viande$Type_viande)
+
+viande %>% 
+  ggplot(aes(y =Total , x = Type_viande,fill=Type_viande)) + geom_boxplot() + coord_flip() +
+  guides(fill=FALSE)+
+  labs(y=" C02 ")+labs(x=" ")
+
+```
+
+
+5. On voit finalement que les émissions dépendent beaucoup du type de viande : l'agneau ou le boeuf émettent beaucoup plus de $\textrm{C0}_2$ que le poulet, le porc, la dinde, le lapin ou le canard. La variabilité reste cependant très importante même pour un seul type de viande ! Une explication probable est que l'on ne prend pas en compte le type d'élevage (intensif, extensif...), la provenance (produit local ou non) etc.
+
+
+
+### Emissions de $\textrm{C0}_2$ par étape du processus de commercialisation d'un produit {-}
+
+6. On regarde les émissions de $\textrm{C0}_2$ attribuées à chaque étape.
+
+
+```{r,echo=FALSE, warning=FALSE,fig.width=8}
+
+names(agri_cc)[13:18]<-c("Agriculture","Transformation","Emballage","Transport","Distribution","Consommation")
+
+agri_cc %>% 
+  select(Consommation,Distribution,Transport,Emballage,Transformation,Agriculture,`Synthèse`) %>% 
+  gather(key = "type", value ="value", -`Synthèse`) %>% 
+  ggplot(aes( x = type, y = value)) + geom_boxplot() + coord_flip()+
+  labs(y=" C02 ")+labs(x=" ")
+
+
+
+```
+
+On voit que c'est de loin l'agriculture qui est responsable de la plus grande part de C02. 
+
+7. En différenciant par groupe d'aliment (variable "Synthèse"), la part de l'émission due à l'agriculture est particulièrement élevée pour les viandes, oeufs et poisson. La part due à la transformation est élevée uniquement pour les produits sucrés.
+
+```{r,echo=FALSE, warning=FALSE,fig.width=8}
+
+
+
+
+agri_cc %>% 
+  select(Consommation,Distribution,Transport,Emballage,Transformation,Agriculture,`Synthèse`) %>% 
+  gather(key = "type", value ="value", -`Synthèse`) %>%
+  ggplot(aes( x = `Synthèse`, y = value)) + geom_boxplot() + coord_flip()+ facet_wrap(~type)+ labs(y=" C02 ")+labs(x=" ")
+
+
+
+```
+
+
+En affichant une couleur par sous-groupe, on voit une fois de plus qu'il pourrait être pertinent de regarder les impacts à l'échelle du sous-groupe.
+
+
+```{r,echo=FALSE, warning=FALSE,fig.width=8}
+
+
+
+agri_cc %>% 
+  select(Consommation,Distribution,Transport,Emballage,Transformation,Agriculture,`Synthèse`,`Sous-groupe d'aliment`) %>% 
+  gather(key = "type", value ="value", -`Synthèse`,-`Sous-groupe d'aliment`) %>%
+  ggplot(aes( x = `Synthèse`, y = value,color=`Sous-groupe d'aliment`)) + geom_point() + coord_flip()+ facet_wrap(~type)+ labs(y=" C02 ")+labs(x=" ")+ guides(color=FALSE)
+
+```
+8. Pour les produits dont le transport émet beaucoup de C02, on trouve principalement des mollusques et crustacés (homard, langoustine, Saint-Jacques...), des poissons (maquereau, églefin, carrelet...) ainsi que certains fruits et légumes importés par avion (mangue et haricot). Pour l'agriculture, on retrouve uniquement de la viande et presque toujours boeuf ou agneau. Pour la transformation, c'est presque toujours des produits à base de chocolat et on voit également des produits à base de crabe et de café.
+
+```{r,warning=FALSE,echo=FALSE}
+head(agri_cc %>% 
+  select(Transport,`Sous-groupe d'aliment`,`Nom du Produit en Français`) %>% arrange(desc(Transport)),n=20)
+
+head(agri_cc %>% 
+  select(Agriculture,`Sous-groupe d'aliment`,`Nom du Produit en Français`) %>% arrange(desc(Agriculture)),n=20)
+
+head(agri_cc %>% 
+  select(Transformation,`Sous-groupe d'aliment`,`Nom du Produit en Français`) %>% arrange(desc(Transformation)),n=20)
+
+```
+
+9.
+
+```{r,warning=FALSE,echo=FALSE}
+
+loin<- agri_cc %>% 
+dplyr::mutate(Produit = case_when( 
+grepl("Mangue",`Nom du Produit en Français`,ignore.case=TRUE) ~"Mangue",
+grepl("Ananas",`Nom du Produit en Français`,ignore.case=TRUE) ~"Ananas",
+grepl("Chocolat",`Nom du Produit en Français`,ignore.case=TRUE)~"Chocolat",
+grepl("Saint-Jacques",`Nom du Produit en Français`,ignore.case=TRUE) ~"Saint Jacques",
+grepl("Café",`Nom du Produit en Français`,ignore.case=TRUE)~"Café",
+grepl("Homard",`Nom du Produit en Français`,ignore.case=TRUE)~"Homard",
+grepl("Agneau",`Nom du Produit en Français`,ignore.case=TRUE)~"Agneau",
+grepl("Boeuf",`Nom du Produit en Français`,ignore.case=TRUE)~"Boeuf",
+TRUE~"other"
+))
+
+loin%>% filter(Produit!="other") %>% 
+select(Consommation,Distribution,Transport,Emballage,Transformation,Agriculture,Produit) %>% 
+  gather(key = "type", value ="value", -`Produit`) %>% 
+  ggplot(aes( x = `Produit`, y = value)) + geom_boxplot() + coord_flip()+ facet_wrap(~type) +
+  labs(y=" C02 ")+labs(x=" ")
+
+
+loin%>% filter(Produit!="other") %>% 
+select(Consommation,Distribution,Transport,Emballage,Transformation,Agriculture,Produit) %>% 
+  gather(key = "type", value ="value", -`Produit`) %>% group_by(Produit,type) %>% summarize(mean_value=mean(value))%>% 
+  ggplot(aes( x = Produit, y = mean_value,fill=type)) + geom_bar(stat="identity") + coord_flip() + scale_fill_brewer(palette = "Set1")+
+  labs(y=" C02 ")+labs(x=" ")
+
+```
+
+Pour tous ces produits, la part associée à la consommation, l'emballage ou la distribution est négligeable. La part liée à l'agriculture est majoritaire et est particulièrement élevée pour les viandes (agneau, boeuf) et les produits de la mer (homard, Saint-Jacques). La part associée au transport est globalement assez faible par rapport à l'agriculture, mais reste élevée pour le homard, les Saint-Jacques, ainsi que la mangue. Enfin la part associée à la transformation est globalement assez faible, bien que non négligeable pour le café et le chocolat.
+
+
+### Lien entre les indicateurs {-}
+
+10. On voit que globalement tous les indicateurs sont très corrélés entre eux, et surtout on ne voit que des corrélations positives, ce qui indique que les aliments qui sont fortement impactants ont tendance à l'être selon tous les indicateurs.  
+
+```{r}
+library(corrplot)
+
+### numérotation des colonnes pour la lisibilité
+c_indic <- cor(agri_all_indic)
+colnames(cor(agri_all_indic))
+colnames(c_indic) <- paste("T" , 1:ncol(c_indic))
+
+rownames(c_indic) <- paste("T", 1:ncol(c_indic))
+corrplot(c_indic, order="hclust")
+
+```
+
+
+# Conclusions
+
+- La viande est le type de produit qui est responsable des plus grandes émissions de C02. Au sein de la viande, il y a de grosses disparités et on voit en particulier que le boeuf et l'agneau causent des émissions largement supérieures aux autres types de viande. Les mollusques et crustacés sont également associés à de fortes émissions de $\textrm{C0}_2$ : en particulier, le homard a de fortes émissions à la fois liées à l'agriculture et au transport.
+
+- La part des émissions de C02 liées à l'agriculture est généralement majoritaire par rapport à toutes les autres étapes. En particulier, la part du transport est souvent bien plus faible que celle liée à l'agriculture, sauf pour des produits spécifiques et souvent importés en avion comme la mangue.
+
+- Les différents indicateurs qui mesurent l'impact des aliments sur l'environnement sont très corrélés entre eux. Si la viande et le poisson ont des mauvais scores selon tous les critères, certains produits (fruits et légumés, produits sucrés, matières grasses) ont des scores variables selon l'indicateur considéré.
+
+# Limites de la base de données
+
+Toutes les émissions étant calculées en moyenne pour un type de produit donné, on ne peut pas différencier un même aliment produit localement ou non, dans un type d'élevage particulier etc.
+
+# Pour aller plus loin
+
+- Approfondir l'analyse des indicateurs autre que les émissions de C02, notamment en regardant plus en détail selon les produits (comme fait pour les émissions de $\textrm{C0}_2$)
+
+- Croiser les données avec d'autres bases : le code CIQUAL permet notamment d'identifier les aliments et de trouver leur valeur nutritionnelle, comparer les émissions de $\textrm{C0}_2$ dues à l'alimentation avec celles associées au transport etc.
